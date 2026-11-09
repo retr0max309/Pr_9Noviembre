@@ -1,40 +1,41 @@
-from fastapi.testclient import TestClient
-from app.main import app
-import time
 import json
 
-client = TestClient(app)
-# NO USAMOS setup_function aquí, ya que queremos simular un entorno persistente
-# y que las pruebas anteriores (Integración) hayan modificado la DB real (db.json)
-def test_e2e_full_category_lifecycle():
-    """
-    Simula un flujo completo del usuario (End-to-End):
-    1. Revisa si existe.
-    2. Crea el recurso.
-    3. Revisa la lista para confirmar la creación.
-    """
-    cat_name = f"E2E Cat {int(time.time())}" # Nombre único
-    # 1. Paso de usuario: Intenta obtener todas las categorías
-    response_get_initial = client.get("/categorias")
-    initial_list = response_get_initial.json()
-    initial_count = len(initial_list)
-    print("\n--- E2E: LISTA INICIAL DE CATEGORÍAS (Antes de crear) ---")
-    print(json.dumps(initial_list, indent=4))
-    print(f"Número inicial de categorías: {initial_count}")
-    print("----------------------------------------------------------")
-    # 2. Paso de usuario: Crea una nueva categoría
-    response_post = client.post("/categorias", params={"nombre": cat_name})
-    assert response_post.status_code == 200
-    categoria_creada = response_post.json()
-    print(f"\n--- E2E: CATEGORÍA CREADA ---")
-    print(json.dumps(categoria_creada, indent=4))
-    print("------------------------------")
-    # 3. Paso de usuario: Verifica la lista final
-    response_get_final = client.get("/categorias")
-    final_list = response_get_final.json()
-    print("\n--- E2E: LISTA FINAL DE CATEGORÍAS (Tras crear) ---")
-    print(json.dumps(final_list, indent=4))
-    print("--------------------------------------------------")
-    # E2E Assertions:
-    assert len(final_list) == initial_count + 1
-    assert any(c['nombre'] == cat_name for c in final_list)
+import pytest
+from fastapi.testclient import TestClient
+
+from app import crud
+from app.main import app
+
+
+@pytest.fixture
+def cliente_api(tmp_path, monkeypatch):
+    archivo = tmp_path / "db.json"
+    archivo.write_text('{"categorias": [], "productos": []}', encoding="utf-8")
+    monkeypatch.setattr(crud, "DB_FILE", archivo)
+    return TestClient(app), archivo
+
+
+def test_flujo_completo_de_categoria(cliente_api):
+    cliente, archivo = cliente_api
+
+    assert cliente.get("/categorias").json() == []
+    respuesta = cliente.post("/categorias", params={"nombre": "Jardinería"})
+    assert respuesta.status_code == 200
+    categoria = respuesta.json()
+    assert categoria == {"id": 1, "nombre": "Jardinería"}
+    assert cliente.get("/categorias").json() == [categoria]
+    assert json.loads(archivo.read_text(encoding="utf-8"))["categorias"] == [categoria]
+
+
+def test_flujo_completo_de_producto(cliente_api):
+    cliente, archivo = cliente_api
+
+    categoria = cliente.post("/categorias", params={"nombre": "Electrónica"}).json()
+    respuesta = cliente.post(
+        "/productos", params={"nombre": "Laptop", "categoria_id": categoria["id"]}
+    )
+    assert respuesta.status_code == 200
+    producto = respuesta.json()
+    assert producto == {"id": 101, "nombre": "Laptop", "categoria_id": categoria["id"]}
+    assert cliente.get("/productos").json() == [producto]
+    assert json.loads(archivo.read_text(encoding="utf-8"))["productos"] == [producto]

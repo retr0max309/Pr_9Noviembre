@@ -26,8 +26,17 @@ jobs:
 
       - name: Run tests
         run: |
-          echo "Empezando con pruebas de python"
-          python -m pytest --rootdir . -s
-      - name : Reporte final
+          python -m pytest -q
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build React frontend
+        working-directory: frontend
         run: |
-          echo "Pruebas finalizadas"
+          npm ci
+          npm run build
