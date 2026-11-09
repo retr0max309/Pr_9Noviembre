@@ -1,4 +1,6 @@
-name: CI pruebas automatizadas en dev
+name: Pruebas de Python y compilación de React
+run-name: Validar seis pruebas y React en ${{ github.ref_name }}
+
 on:
   push:
     branches:
@@ -6,37 +8,88 @@ on:
   pull_request:
     branches:
       - dev
-jobs:
-  test_app:
-    name: ejecutar pruebas python
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+  workflow_dispatch:
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
+permissions:
+  contents: read
+
+jobs:
+  pruebas:
+    name: ${{ matrix.nombre }} (2 pruebas)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - nombre: Pruebas unitarias
+            archivo: tests/test_unit_categoria.py
+            informe: unitarias.xml
+            artefacto: informe-unitarias
+          - nombre: Pruebas de integración
+            archivo: tests/test_integr_cat_prod.py
+            informe: integracion.xml
+            artefacto: informe-integracion
+          - nombre: Pruebas E2E de la API
+            archivo: tests/test_e2e_api_cat.py
+            informe: e2e.xml
+            artefacto: informe-e2e
+    steps:
+      - name: Obtener código del repositorio
+        uses: actions/checkout@v4
+
+      - name: Preparar Python 3.11
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+      - name: Instalar dependencias de Python
+        run: python -m pip install -r requirements.txt
 
-      - name: Run tests
-        run: |
-          python -m pytest -q
+      - name: Ejecutar ${{ matrix.nombre }}
+        run: python -m pytest -q "${{ matrix.archivo }}" --junitxml="informes/${{ matrix.informe }}"
 
-      - name: Set up Node.js
+      - name: Mostrar resumen en español
+        run: |
+          echo "### ${{ matrix.nombre }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Se aprobaron las 2 pruebas de este nivel." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Guardar informe de pruebas
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artefacto }}
+          path: informes/${{ matrix.informe }}
+          if-no-files-found: error
+
+  react:
+    name: React - compilar y guardar frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obtener código del repositorio
+        uses: actions/checkout@v4
+
+      - name: Preparar Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Build React frontend
+      - name: Instalar dependencias de React
         working-directory: frontend
+        run: npm ci
+
+      - name: Compilar frontend de React
+        working-directory: frontend
+        run: npm run build
+
+      - name: Guardar frontend compilado
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-react
+          path: frontend/dist/
+          if-no-files-found: error
+
+      - name: Mostrar resumen en español
         run: |
-          npm ci
-          npm run build
+          echo "### Frontend de React" >> "$GITHUB_STEP_SUMMARY"
+          echo "Descarga el artefacto **frontend-react** de esta ejecución para desplegar los archivos compilados." >> "$GITHUB_STEP_SUMMARY"
